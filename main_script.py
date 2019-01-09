@@ -35,16 +35,17 @@ def predict_rub_salary_from_SuperJob(vacancies):
     return average, len(salaries)
 
 
-def get_vacancies_amount(languages):
+def get_required_vacancy(language):
     selected_vacancies = {}
+    vacancies = []
     url = "https://api.hh.ru/vacancies"
-    for language in languages:
-        vacancies = []
-        parameters = {'text': f'программист {language}'}
-        pages = requests.get(url, params=parameters).json()['pages']
+    parameters = {'text': f'программист {language}'}
+    pages = requests.get(url, params=parameters).json()['pages']
+    run = True
+    while run == True:
         for page in range(pages):
             parameters = {'text': f'программист {language}',
-                           'per_page': 20, 'page': page}
+                          'per_page': 20, 'page': page}
             response = requests.get(url, params=parameters)
             for vacancy in response.json()['items']:
                 vacancy_datetime = parser.parse(vacancy['published_at'])
@@ -54,8 +55,13 @@ def get_vacancies_amount(languages):
                         and (today-vacancy_date).days < 30:
                     vacancies.append(vacancy)
                     selected_vacancies[language] = {'found': response.json()['found'], 'pages':response.json()['pages'],
-                                                'vacancy': vacancies}
-    return selected_vacancies
+                                                    'vacancy': vacancies}
+                else:
+                    run = False
+    if len(vacancies):
+        return selected_vacancies[language]
+    else:
+        return None
 
 
 def get_vacancies_from_SuperJob(language, secret_key):
@@ -82,9 +88,10 @@ def print_table(vacancies, title):
         ('Language', 'Found', 'Processed', 'Average salary')
     ]
     for language in vacancies:
-        data = (language, vacancies[language]['found'], vacancies[language]['processed'],
-                vacancies[language]['average_salary'])
-        table_data.append(data)
+        if vacancies[language] is not None:
+            data = (language, vacancies[language]['found'], vacancies[language]['processed'],
+                    vacancies[language]['average_salary'])
+            table_data.append(data)
     table = terminaltables.AsciiTable(table_data, title)
     print(table.table)
 
@@ -93,13 +100,16 @@ def main():
     load_dotenv()
     secret_key = os.getenv("SECRET_KEY")
     languages = ['Java', 'Python', 'Ruby', 'PHP', 'C++', 'C#', 'C', 'GO', 'JS']
-    vacancies_HH = get_vacancies_amount(languages)
+    vacancies_HH = {}
     vacancies_SJ = {}
+    for language in languages:
+        vacancies_HH[language] = get_required_vacancy(language)
     for language in vacancies_HH:
-        average = get_rub_salary_prediction(vacancies_HH[language]['vacancy'])
-        info_for_language = {'found': vacancies_HH[language]['found'], 'processed': len(vacancies_HH[language]['vacancy']),
-                             'average_salary': average}
-        vacancies_HH[language] = info_for_language
+        if vacancies_HH[language] is not None:
+            average = get_rub_salary_prediction(vacancies_HH[language]['vacancy'])
+            info_for_language = {'found': vacancies_HH[language]['found'], 'processed': len(vacancies_HH[language]['vacancy']),
+                                 'average_salary': average}
+            vacancies_HH[language] = info_for_language
     total = {}
     for language in languages:
         vacancies_SJ[language], total[language] = get_vacancies_from_SuperJob(language, secret_key)
