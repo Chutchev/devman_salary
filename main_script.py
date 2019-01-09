@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 import os
 
 
-def get_predict_rub_salary(vacancies):
+def get_rub_salary_prediction(vacancies):
     salaries = []
     for vacancy in vacancies:
         if vacancy['salary'] is not None:
@@ -35,8 +35,8 @@ def predict_rub_salary_from_SuperJob(vacancies):
     return average, len(salaries)
 
 
-def get_amount_vacancies(languages):
-    need_vacancies = {}
+def get_vacancies_amount(languages):
+    selected_vacancies = {}
     url = "https://api.hh.ru/vacancies"
     for language in languages:
         vacancies = []
@@ -53,9 +53,9 @@ def get_amount_vacancies(languages):
                 if response.json()['found'] > 100 and vacancy['area']['name'] == 'Москва' \
                         and (today-vacancy_date).days < 30:
                     vacancies.append(vacancy)
-                    need_vacancies[language] = {'found': response.json()['found'], 'pages':response.json()['pages'],
+                    selected_vacancies[language] = {'found': response.json()['found'], 'pages':response.json()['pages'],
                                                 'vacancy': vacancies}
-    return need_vacancies
+    return selected_vacancies
 
 
 def get_vacancies_from_SuperJob(language, secret_key):
@@ -88,14 +88,15 @@ def print_table(vacancies, title):
     table = terminaltables.AsciiTable(table_data, title)
     print(table.table)
 
+
 def main():
     load_dotenv()
     secret_key = os.getenv("SECRET_KEY")
     languages = ['Java', 'Python', 'Ruby', 'PHP', 'C++', 'C#', 'C', 'GO', 'JS']
-    vacancies_HH = get_amount_vacancies(languages)
+    vacancies_HH = get_vacancies_amount(languages)
     vacancies_SJ = {}
     for language in vacancies_HH:
-        average = get_predict_rub_salary(vacancies_HH[language]['vacancy'])
+        average = get_rub_salary_prediction(vacancies_HH[language]['vacancy'])
         info_for_language = {'found': vacancies_HH[language]['found'], 'processed': len(vacancies_HH[language]['vacancy']),
                              'average_salary': average}
         vacancies_HH[language] = info_for_language
