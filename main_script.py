@@ -6,58 +6,38 @@ from dotenv import load_dotenv
 import os
 
 
-def get_rub_salary_prediction(vacancy):
-    if vacancy['salary'] is not None and vacancy['salary']['currency'] == 'RUR':
-        if vacancy['salary']['to'] is None:
-            salary = vacancy['salary']['from'] * 1.2
-            return salary
-        elif vacancy['salary']['from'] is None:
-            salary = vacancy['salary']['to'] * 0.8
-            return salary
-        elif (vacancy['salary']['from'], vacancy['salary']['to']) is not None:
-            salary = (vacancy['salary']['to'] + vacancy['salary']['from']) / 2
-            return salary
-    else:
+def predict_rub_salary(currency, salary_from, salary_to):
+    if currency != 'RUR' and currency != 'rub':
         return None
+    if (salary_to is None or salary_to == 0) and salary_from > 0:
+        return salary_from * 1.2
+    elif (salary_from is None or salary_from == 0) and salary_to > 0:
+        return salary_to * 0.8
+    elif salary_to > 0 and salary_from > 0:
+        return (salary_to + salary_from) / 2
 
 
-
-def predict_rub_salary_from_SuperJob(vacancy):
-    if vacancy['currency'] == 'rub':
-        if vacancy['payment_to'] == 0 and vacancy['payment_from'] > 0:
-            return vacancy['payment_from'] * 0.8
-        elif vacancy['payment_from'] == 0 and vacancy['payment_to'] > 0:
-            return vacancy['payment_to'] * 1.2
-        elif vacancy['payment_to'] > 0 and vacancy['payment_from'] > 0:
-            return (vacancy['payment_to'] + vacancy['payment_from']) / 2
-    else:
-        return None
-
-
-def get_required_vacancy(language):
-    print(language)
+def get_required_vacancy_from_HH(language):
     selected_vacancies = {}
     vacancies = []
     url = "https://api.hh.ru/vacancies"
     parameters = {'text': f'программист {language}'}
     pages = requests.get(url, params=parameters).json()['pages']
-    run = True
-    while run == True:
-        for page in range(pages):
-            parameters = {'text': f'программист {language}',
-                          'per_page': 20, 'page': page}
-            response = requests.get(url, params=parameters)
-            for vacancy in response.json()['items']:
-                vacancy_datetime = parser.parse(vacancy['published_at'])
-                today = datetime.date.today()
-                vacancy_date = datetime.date(vacancy_datetime.year, vacancy_datetime.month, vacancy_datetime.day)
-                if response.json()['found'] > 100 and vacancy['area']['name'] == 'Москва' \
-                        and (today-vacancy_date).days < 30:
+    for page in range(pages):
+        parameters = {'text': f'программист {language}',
+                      'per_page': 20, 'page': page}
+        response = requests.get(url, params=parameters)
+        for vacancy in response.json()['items']:
+            vacancy_datetime = parser.parse(vacancy['published_at'])
+            today = datetime.date.today()
+            vacancy_date = datetime.date(vacancy_datetime.year, vacancy_datetime.month, vacancy_datetime.day)
+            if response.json()['found'] > 100:
+                if vacancy['area']['name'] == 'Москва' and (today-vacancy_date).days < 30:
                     vacancies.append(vacancy)
                     selected_vacancies[language] = {'found': response.json()['found'], 'pages':response.json()['pages'],
-                                                    'vacancy': vacancies}
-                else:
-                    run = False
+                                                'vacancy': vacancies}
+            else:
+                break
     if len(vacancies):
         return selected_vacancies[language]
     else:
@@ -68,7 +48,7 @@ def get_vacancies_from_SuperJob(language, secret_key):
     vacancies = []
     url = 'https://api.superjob.ru/2.0/vacancies/'
     headers = {'X-Api-App-Id':
-                   secret_key}  # .env
+                   secret_key}
     page = 0
     pages = 100
     total = 0
@@ -102,35 +82,42 @@ def main():
     languages = ['Java', 'Python', 'Ruby', 'PHP', 'C++', 'C#', 'C', 'GO', 'JS']
     vacancies_HH = {}
     vacancies_SJ = {}
-    for language in languages:
-        vacancies_HH[language] = get_required_vacancy(language)
-    for language in vacancies_HH:
-        if vacancies_HH[language] is not None:
-            required_salaries = []
-            for vacancy in vacancies_HH[language]['vacancy']:
-                salary = get_rub_salary_prediction(vacancy)
-                if salary is not None:
-                    required_salaries.append(salary)
-            average = int(sum(required_salaries)/len(required_salaries))
-            info_for_language = {'found': vacancies_HH[language]['found'], 'processed': len(vacancies_HH[language]['vacancy']),
-                                 'average_salary': average}
-            vacancies_HH[language] = info_for_language
     total = {}
+    print('Сбор необходимых вакансий')
     for language in languages:
-        vacancies_SJ[language], total[language] = get_vacancies_from_SuperJob(language, secret_key)
-    for language, vacancies_list in vacancies_SJ.items():
         print(language)
+        vacancies_HH[language] = get_required_vacancy_from_HH(language)
+        vacancies_SJ[language], total[language] = get_vacancies_from_SuperJob(language, secret_key)
+    for language, vacancies in vacancies_SJ.items():
         salaries = []
-        for vacancy in vacancies_list:
-            salary = predict_rub_salary_from_SuperJob(vacancy)
+        for vacancy in vacancies:
+            currency = vacancy['currency']
+            salary_to = vacancy['payment_to']
+            salary_from = vacancy['payment_from']
+            salary = predict_rub_salary(currency, salary_from, salary_to)
             if salary is not None:
                 salaries.append(salary)
         average = int(sum(salaries)/len(salaries))
         info_for_language = {'found': total[language], 'processed': len(salaries),
-                             'average_salary': average}
+                                 'average_salary': average}
         vacancies_SJ[language] = info_for_language
+    for language, vacancies in vacancies_HH.items():
+        salaries = []
+        for vacancy in vacancies['vacancy']:
+            if vacancy['salary'] is not None:
+                salary_to = vacancy['salary']['to']
+                salary_from = vacancy['salary']['from']
+                currency = vacancy['salary']['currency']
+                salary = predict_rub_salary(currency, salary_from, salary_to)
+                if salary is not None:
+                    salaries.append(salary)
+        average = int(sum(salaries)/len(salaries))
+        info_for_language = {'found': vacancies_HH[language]['found'],
+                             'processed': len(vacancies_HH[language]['vacancy']),
+                                     'average_salary': average}
+        vacancies_HH[language] = info_for_language
+    print_table(vacancies_HH, "HeadHunter Moscow")
     print_table(vacancies_SJ, 'SuperJob Moscow')
-    print_table(vacancies_HH, 'HeadHunter Moscow')
 
 
 if __name__ == "__main__":
